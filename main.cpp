@@ -1,16 +1,11 @@
 #include <iostream>
 #include <utility>
 #include <vector>
-#include <numeric>
-#include <fstream>
 #include <format>
 
-using f32 = float;
-using i32 = int;
-using u8 = unsigned char;
-using i64 = long long;
-using u64 = unsigned long long;
+#include "shorttypes.h"
 
+#include "utils.h"
 
 auto activate(f32 x) -> f32 {
     return 1.f / (1.f + exp(-x));
@@ -335,21 +330,7 @@ auto test() -> void {
 }
 
 
-auto save_binary(const char *filename, const std::vector<u8> &binary) {
-    std::ofstream file(filename, std::ios::binary);
-    file.write(reinterpret_cast<const char *>(binary.data()), binary.size());
-}
 
-std::vector<u8> load_binary(const char *filename) {
-    std::ifstream file(filename, std::ios::binary | std::ios::ate);
-
-    std::streamsize size = file.tellg();
-    file.seekg(0, std::ios::beg);
-
-    std::vector<u8> binary(size);
-    file.read(reinterpret_cast<char *>(binary.data()), size);
-    return binary;
-}
 
 auto nn_xor_train_and_save() {
     NeuralNetwork nn({2, 16, 1});
