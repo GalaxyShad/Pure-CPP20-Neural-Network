@@ -146,6 +146,18 @@ private:
     std::vector<WeightMatrix> weights_;
 };
 
+struct TrainingObserverData {
+    f32 current_error;
+    i32 current_epoch;
+    std::vector<WeightMatrix> &nn_weights;
+    std::vector<Layer> &nn_layers;
+    i32 data_set_index;
+};
+
+struct ITrainingObserver {
+    virtual auto on_epoch(const TrainingObserverData &data) -> void = 0;
+};
+
 class NeuralNetwork {
 public:
     explicit NeuralNetwork(const size_t *layers_size_list, size_t layers_count) {
@@ -220,7 +232,7 @@ public:
         f32 error;
     };
 
-    auto train(const TrainingParams &params) -> TrainingResult {
+    auto train(const TrainingParams &params, ITrainingObserver *observer = nullptr) -> TrainingResult {
         i32 epoch = 0;
         f32 err = 0.f;
 
@@ -239,6 +251,16 @@ public:
                     back_propagate(expected_output, params.back_propagation_speed);
                     predict_to_output(input);
                     is_error = true;
+                }
+
+                if (observer != nullptr) {
+                    observer->on_epoch({
+                                               .current_error = err,
+                                               .current_epoch = epoch,
+                                               .nn_weights = weight_matrix_,
+                                               .nn_layers = layers_,
+                                               .data_set_index = i
+                                       });
                 }
             }
 
@@ -313,6 +335,19 @@ private:
     std::vector<WeightMatrix> weight_matrix_;
 };
 
+struct StdoutTrainingObserver : public ITrainingObserver {
+    auto on_epoch(const TrainingObserverData &data) -> void override {
+        auto x1 = data.nn_layers.front().neurons().front().value;
+        auto x2 = data.nn_layers.front().neurons().back().value;
+
+        auto z = data.nn_layers.back().neurons().front().value;
+
+        std::cout << std::format("epoch: {}; err: {}; data_set_index: {}; res: {} xor {} = {};{}\n",
+                                 data.current_epoch, data.current_error, data.data_set_index, x1, x2, z,
+                                 data.data_set_index == 3 ? '\n' : ' ' );
+    }
+};
+
 auto test() -> void {
     size_t layers[] = {2, 2};
     NeuralNetwork nn(layers, sizeof(layers) / sizeof(layers[0]));
@@ -330,8 +365,6 @@ auto test() -> void {
 }
 
 
-
-
 auto nn_xor_train_and_save() {
     NeuralNetwork nn({2, 16, 1});
 
@@ -346,11 +379,13 @@ auto nn_xor_train_and_save() {
             0, 1.f, 1.f, 0.f
     };
 
+
+    StdoutTrainingObserver observer;
     auto training_result = nn.train({
-                                  .train_data_count = 4,
-                                  .input_data = train_data_in,
-                                  .output_data = train_data_out,
-                          });
+                                            .train_data_count = 4,
+                                            .input_data = train_data_in,
+                                            .output_data = train_data_out,
+                                    }, &observer);
 
     std::cout << "[INFO] training finished\n";
     std::cout << std::format("epochs: {}\n", training_result.epoch_count);
