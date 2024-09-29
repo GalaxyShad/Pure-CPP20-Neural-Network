@@ -8,24 +8,8 @@ auto activate(f32 x) -> f32 {
     return 1.f / (1.f + exp(-x));
 }
 
-class Neuron {
-public:
-
-    auto output() const -> f32 {
-        return value_;
-    }
-
-    auto setBeta(f32 b) -> void { beta_ = b; }
-
-    auto beta() const -> f32 { return beta_; }
-
-    auto setValue(f32 value) -> void {
-        value_ = value;
-    }
-
-private:
-    f32 value_ = 0.f;
-    f32 beta_ = 0.f;
+struct Neuron {
+    f32 value, beta;
 };
 
 class WeightMatrix {
@@ -81,16 +65,14 @@ public:
 
 public:
     auto getResult(i32 i) -> f32 {
-        return layers_[layers_.size() - 1].getNeuron(i).output();
+        return layers_[layers_.size() - 1].getNeuron(i).value;
     }
 
-    auto test(const f32 *inputData) {
+    auto predict(const f32 *inputData) {
         auto &inputLayer = layers_[0];
 
         for (int i = 0; i < inputLayer.size(); i++) {
-            inputLayer
-                    .getNeuron(i)
-                    .setValue(inputData[i]);
+            inputLayer.getNeuron(i).value = inputData[i];
         }
 
         for (int k = 1; k < layers_.size(); k++) {
@@ -104,12 +86,12 @@ public:
                 auto sum = 0.f;
                 for (int j = 0; j < prevLayer.size(); j++) {
                     auto w = weightsBetween.weight(i, j);
-                    auto pn = prevLayer.getNeuron(j).output();
+                    auto pn = prevLayer.getNeuron(j).value;
 
                     sum += w * pn;
                 }
 
-                neuron.setValue(activate(sum));
+                neuron.value = activate(sum);
             }
         }
     }
@@ -119,17 +101,16 @@ public:
             auto isError = false;
 
             for (int i = 0; i < trainDataCount; i++) {
-                test(inputData + i * layers_[0].size());
+                predict(inputData + i * layers_[0].size());
 
                 auto expected = outputData + i * layers_[layers_.size() - 1].size();
 
                 auto err = calculateError(expected);
 
-                std::cout << i << " " << err << "\n";
                 if (err > 0.025f) {
 
                     adjust(expected);
-                    test(inputData + i * layers_[0].size());
+                    predict(inputData + i * layers_[0].size());
                     isError = true;
                 }
             }
@@ -144,7 +125,7 @@ public:
         auto &endLayer = layers_[layers_.size() - 1];
 
         for (int i = 0; i < endLayer.size(); i++) {
-            sum += abs(expectedOutputList[i] - endLayer.getNeuron(i).output());
+            sum += abs(expectedOutputList[i] - endLayer.getNeuron(i).value);
         }
 
         return sum / 2.f;
@@ -159,10 +140,10 @@ public:
 
                 auto &neuron = layers_[k].getNeuron(i);
 
-                neuron.setBeta(beta);
+                neuron.beta = beta;
 
                 for (int j = 0; j < weights.inCount(); j++) {
-                    auto delta = alpha * beta * layers_[k - 1].getNeuron(j).output();
+                    auto delta = alpha * beta * layers_[k - 1].getNeuron(j).value;
 
                     auto newWeight = weights.weight(i, j) + delta;
 
@@ -176,7 +157,7 @@ private:
     auto computeBeta(i32 layerIndex, i32 neuronIndex, const f32 *expectedOutputList) -> f32 {
         auto &neuron = layers_[layerIndex].getNeuron(neuronIndex);
 
-        auto y = neuron.output();
+        auto y = neuron.value;
         auto beta = y * (1.f - y);
 
         if (layerIndex == layers_.size() - 1) {
@@ -187,7 +168,7 @@ private:
 
             auto sum = 0.f;
             for (int j = 0; j < nextLayer.size(); j++) {
-                sum += nextLayer.getNeuron(j).beta() * nextWeights.weight(j, neuronIndex);
+                sum += nextLayer.getNeuron(j).beta * nextWeights.weight(j, neuronIndex);
             }
             beta *= sum;
         }
@@ -205,7 +186,7 @@ auto test() -> void {
     size_t layers[] = {2, 2 };
     NeuralNetwork nn(layers, sizeof(layers) / sizeof(layers[0]));
 
-    nn.test(new f32[] { 1.f, 0.25f });
+    nn.predict(new f32[]{1.f, 0.25f});
 
     //               0.4200093864
     //  - ( 1.00f ) ---- (   )
@@ -237,8 +218,8 @@ auto main() -> int {
 
     for (int i = 0; i < 2; i++) {
         for (int j = 0; j < 2; j++) {
-            float input[] = {(f32) i, (f32) j};
-            nn.test(input);
+            float input[] = {(f32) i + 0.5f, (f32) j  + 0.5f};
+            nn.predict(input);
             std::cout << i << " xor " << j << " = " << nn.getResult(0) << std::endl;
         }
     }
