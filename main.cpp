@@ -14,40 +14,36 @@ struct Neuron {
 
 class WeightMatrix {
 public:
-    explicit WeightMatrix(i32 outCount, i32 inCount) : inCount_(inCount), outCount_(outCount),
-                                                       weights_(inCount * outCount) {
+    explicit WeightMatrix(i32 out_count, i32 in_count) : in_count_(in_count), out_count_(out_count),
+                                                         weights_(in_count * out_count) {
         for (auto &w: weights_) {
-            w = (random() /  (float)RAND_MAX) * 0.5f;
+            w = (random() / (float) RAND_MAX) * 0.5f;
         }
     }
 
 public:
-    auto setWeight(i32 out, i32 in, f32 w) -> void {
-        weights_[out * inCount_ + in] = w;
-    }
+    inline auto set_weight(i32 out, i32 in, f32 w) { weights_[out * in_count_ + in] = w; }
 
-    auto weight(i32 out, i32 in) -> f32 {
-        return weights_[out * inCount_ + in];
-    }
+    inline auto weight_between(i32 out, i32 in) { return weights_[out * in_count_ + in]; }
 
-    auto outCount() const -> i32 { return outCount_; }
+    inline auto out_count() const { return out_count_; }
 
-    auto inCount() const -> i32 { return inCount_; }
+    inline auto in_count() const { return in_count_; }
 
 private:
     std::vector<f32> weights_;
-    i32 inCount_;
-    i32 outCount_;
+    i32 in_count_;
+    i32 out_count_;
 };
 
 
 class Layer {
 public:
-    Layer(size_t neuronCount) : neurons_(neuronCount) {}
+    explicit Layer(size_t neuron_count) : neurons_(neuron_count) {}
 
-    auto getNeuron(i32 index) -> Neuron & { return neurons_[index]; }
+    auto& neuron(i32 index) { return neurons_[index]; }
 
-    auto size() const -> size_t { return neurons_.size(); }
+    auto size() const { return neurons_.size(); }
 
 private:
     std::vector<Neuron> neurons_;
@@ -55,38 +51,38 @@ private:
 
 class NeuralNetwork {
 public:
-    explicit NeuralNetwork(const size_t *layersSizeList, size_t layersCount)  {
-        for (int i = 0; i < layersCount; i++) {
+    explicit NeuralNetwork(const size_t *layers_size_list, size_t layers_count) {
+        for (int i = 0; i < layers_count; i++) {
             if (i != 0)
-                weightMatrix_.emplace_back(layersSizeList[i], layersSizeList[i - 1]);
-            layers_.emplace_back(layersSizeList[i]);
+                weight_matrix_.emplace_back(layers_size_list[i], layers_size_list[i - 1]);
+            layers_.emplace_back(layers_size_list[i]);
         }
     }
 
 public:
-    auto getResult(i32 i) -> f32 {
-        return layers_[layers_.size() - 1].getNeuron(i).value;
+    auto output(i32 i) -> f32 {
+        return layers_[layers_.size() - 1].neuron(i).value;
     }
 
-    auto predict(const f32 *inputData) {
-        auto &inputLayer = layers_[0];
+    auto predict(const f32 *input_data) {
+        auto &input_layer = layers_[0];
 
-        for (int i = 0; i < inputLayer.size(); i++) {
-            inputLayer.getNeuron(i).value = inputData[i];
+        for (int i = 0; i < input_layer.size(); i++) {
+            input_layer.neuron(i).value = input_data[i];
         }
 
         for (int k = 1; k < layers_.size(); k++) {
-            auto& layer = layers_[k];
-            auto& weightsBetween = weightMatrix_[k - 1];
-            auto& prevLayer = layers_[k - 1];
+            auto &layer = layers_[k];
+            auto &weights = weight_matrix_[k - 1];
+            auto &prev_layer = layers_[k - 1];
 
             for (int i = 0; i < layer.size(); i++) {
-                auto &neuron = layer.getNeuron(i);
+                auto &neuron = layer.neuron(i);
 
                 auto sum = 0.f;
-                for (int j = 0; j < prevLayer.size(); j++) {
-                    auto w = weightsBetween.weight(i, j);
-                    auto pn = prevLayer.getNeuron(j).value;
+                for (int j = 0; j < prev_layer.size(); j++) {
+                    auto w = weights.weight_between(i, j);
+                    auto pn = prev_layer.neuron(j).value;
 
                     sum += w * pn;
                 }
@@ -96,79 +92,59 @@ public:
         }
     }
 
-    auto train(size_t trainDataCount, const f32 *inputData, const f32 *outputData) -> void {
+    auto train(size_t train_data_count, const f32 *input_data, const f32 *output_data) -> void {
         for (i32 epoch = 0; epoch < 200'000; epoch++) {
-            auto isError = false;
+            auto is_error = false;
 
-            for (int i = 0; i < trainDataCount; i++) {
-                predict(inputData + i * layers_[0].size());
+            for (int i = 0; i < train_data_count; i++) {
+                predict(input_data + i * layers_[0].size());
 
-                auto expected = outputData + i * layers_[layers_.size() - 1].size();
+                auto expected = output_data + i * layers_[layers_.size() - 1].size();
 
-                auto err = calculateError(expected);
+                auto err = compute_error(expected);
 
                 if (err > 0.025f) {
 
-                    adjust(expected);
-                    predict(inputData + i * layers_[0].size());
-                    isError = true;
+                    back_propagate(expected);
+                    predict(input_data + i * layers_[0].size());
+                    is_error = true;
                 }
             }
 
-            if (!isError) break;
+            if (!is_error) break;
         }
     }
 
-    auto calculateError(const f32 *expectedOutputList) -> f32 {
+    auto compute_error(const f32 *expected_output_list) -> f32 {
         auto sum = 0.f;
 
         auto &endLayer = layers_[layers_.size() - 1];
 
         for (int i = 0; i < endLayer.size(); i++) {
-            sum += abs(expectedOutputList[i] - endLayer.getNeuron(i).value);
+            sum += abs(expected_output_list[i] - endLayer.neuron(i).value);
         }
 
         return sum / 2.f;
     }
 
-    auto adjust(const f32 *&expectedOutputList, f32 alpha = 0.1f) -> void {
-        for (int k = layers_.size() - 1; k >= 1; k--) {
-            auto &weights = weightMatrix_[k - 1];
 
-            for (int i = 0; i < weights.outCount(); i++) {
-                auto beta = computeBeta(k, i, expectedOutputList);
-
-                auto &neuron = layers_[k].getNeuron(i);
-
-                neuron.beta = beta;
-
-                for (int j = 0; j < weights.inCount(); j++) {
-                    auto delta = alpha * beta * layers_[k - 1].getNeuron(j).value;
-
-                    auto newWeight = weights.weight(i, j) + delta;
-
-                    weights.setWeight(i, j, newWeight);
-                }
-            }
-        }
-    }
 
 private:
-    auto computeBeta(i32 layerIndex, i32 neuronIndex, const f32 *expectedOutputList) -> f32 {
-        auto &neuron = layers_[layerIndex].getNeuron(neuronIndex);
+    auto compute_beta(i32 layer_index, i32 neuron_index, const f32 *expected_output_list) -> f32 {
+        auto &neuron = layers_[layer_index].neuron(neuron_index);
 
         auto y = neuron.value;
         auto beta = y * (1.f - y);
 
-        if (layerIndex == layers_.size() - 1) {
-            beta *= expectedOutputList[neuronIndex] - y;
+        if (layer_index == layers_.size() - 1) {
+            beta *= expected_output_list[neuron_index] - y;
         } else {
-            auto &nextLayer = layers_[layerIndex + 1];
-            auto &nextWeights = weightMatrix_[layerIndex];
+            auto &next_layer = layers_[layer_index + 1];
+            auto &next_weights = weight_matrix_[layer_index];
 
             auto sum = 0.f;
-            for (int j = 0; j < nextLayer.size(); j++) {
-                sum += nextLayer.getNeuron(j).beta * nextWeights.weight(j, neuronIndex);
+            for (int j = 0; j < next_layer.size(); j++) {
+                sum += next_layer.neuron(j).beta * next_weights.weight_between(j, neuron_index);
             }
             beta *= sum;
         }
@@ -176,14 +152,36 @@ private:
         return beta;
     }
 
+    auto back_propagate(const f32 *&expected_outputs_list, f32 alpha = 0.1f) -> void {
+        for (int k = layers_.size() - 1; k >= 1; k--) {
+            auto &weights = weight_matrix_[k - 1];
+
+            for (int i = 0; i < weights.out_count(); i++) {
+                auto beta = compute_beta(k, i, expected_outputs_list);
+
+                auto &neuron = layers_[k].neuron(i);
+
+                neuron.beta = beta;
+
+                for (int j = 0; j < weights.in_count(); j++) {
+                    auto delta = alpha * beta * layers_[k - 1].neuron(j).value;
+
+                    auto new_weight = weights.weight_between(i, j) + delta;
+
+                    weights.set_weight(i, j, new_weight);
+                }
+            }
+        }
+    }
+
 
 private:
     std::vector<Layer> layers_;
-    std::vector<WeightMatrix> weightMatrix_;
+    std::vector<WeightMatrix> weight_matrix_;
 };
 
 auto test() -> void {
-    size_t layers[] = {2, 2 };
+    size_t layers[] = {2, 2};
     NeuralNetwork nn(layers, sizeof(layers) / sizeof(layers[0]));
 
     nn.predict(new f32[]{1.f, 0.25f});
@@ -199,28 +197,28 @@ auto test() -> void {
 }
 
 auto main() -> int {
-    size_t layers[] = {2, 4, 1};
+    size_t layers[] = {2, 16,  1};
 
     NeuralNetwork nn(layers, sizeof(layers) / sizeof(layers[0]));
 
-    f32 trainDataIn[] = {
+    f32 train_data_in[] = {
             0.f, 0.f,
             0.f, 1.f,
             1.f, 0.f,
             1.f, 1.f
     };
 
-    f32 trainDataOut[] = {
+    f32 train_data_out[] = {
             0, 1.f, 1.f, 0.f
     };
 
-    nn.train(4, trainDataIn, trainDataOut);
+    nn.train(4, train_data_in, train_data_out);
 
     for (int i = 0; i < 2; i++) {
         for (int j = 0; j < 2; j++) {
-            float input[] = {(f32) i + 0.5f, (f32) j  + 0.5f};
+            float input[] = {(f32) i, (f32) j};
             nn.predict(input);
-            std::cout << i << " xor " << j << " = " << nn.getResult(0) << std::endl;
+            std::cout << i << " xor " << j << " = " << nn.output(0) << std::endl;
         }
     }
 
