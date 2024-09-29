@@ -2,6 +2,7 @@
 #include <utility>
 #include <vector>
 #include <format>
+#include <algorithm>
 
 #include "shorttypes.h"
 
@@ -20,7 +21,7 @@ public:
     explicit WeightMatrix(i32 out_count, i32 in_count) : in_count_(in_count), out_count_(out_count),
                                                          weights_(in_count * out_count) {
         for (auto &w: weights_) {
-            w = (random() / (float) RAND_MAX) * 0.5f;
+            w = (rand() / (float) RAND_MAX) * 0.5f;
         }
     }
 
