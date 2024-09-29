@@ -187,7 +187,7 @@ private:
 
             auto sum = 0.f;
             for (int j = 0; j < nextLayer.size(); j++) {
-                sum += nextLayer.getNeuron(j).beta() * nextWeights.weight(neuronIndex, j);
+                sum += nextLayer.getNeuron(j).beta() * nextWeights.weight(j, neuronIndex);
             }
             beta *= sum;
         }
