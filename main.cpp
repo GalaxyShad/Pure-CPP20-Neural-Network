@@ -1,9 +1,16 @@
 #include <iostream>
+#include <utility>
 #include <vector>
 #include <numeric>
+#include <fstream>
+#include <format>
 
 using f32 = float;
 using i32 = int;
+using u8 = unsigned char;
+using i64 = long long;
+using u64 = unsigned long long;
+
 
 auto activate(f32 x) -> f32 {
     return 1.f / (1.f + exp(-x));
@@ -48,6 +55,102 @@ private:
     std::vector<Neuron> neurons_;
 };
 
+class NeuralNetworkModel {
+public:
+    explicit NeuralNetworkModel(std::vector<WeightMatrix> weights) : weights_(std::move(weights)) {}
+
+public:
+    auto &weights() { return weights_; }
+
+    auto layer_size(i32 layer_index) {
+        return (layer_index == 0)
+               ? weights_[layer_index].in_count()
+               : weights_[layer_index - 1].out_count();
+    }
+
+    auto layers_count() { return weights_.size() + 1; }
+
+    auto layers_sizes_vector() {
+        auto n = layers_count();
+
+        std::vector<size_t> res(n);
+
+        for (int i = 0; i < n; i++) {
+            res[i] = layer_size(i);
+        }
+
+        return res;
+    }
+
+    static auto serialize(NeuralNetworkModel &model) -> std::vector<u8> {
+
+
+        // Calculate the total size needed for the buffer
+        u64 len = model.weights().size();
+        u64 total_size = sizeof(len);
+
+        for (const auto &w: model.weights()) {
+            total_size += sizeof(i32) * 2; // For out_count and in_count
+            total_size += sizeof(f32) * w.out_count() * w.in_count(); // For weights
+        }
+
+        std::vector<u8> buff(total_size);
+
+        auto *ptr = buff.data();
+
+        std::memcpy(ptr, &len, sizeof(len)), ptr += sizeof(len);
+
+        for (auto &w: model.weights()) {
+            i32 matrix_out = w.out_count();
+            i32 matrix_in = w.in_count();
+
+            std::memcpy(ptr, &matrix_out, sizeof(matrix_out)), ptr += sizeof(matrix_out);
+            std::memcpy(ptr, &matrix_in, sizeof(matrix_in)), ptr += sizeof(matrix_in);
+
+            for (auto i = 0; i < w.out_count(); i++) {
+                for (auto j = 0; j < w.in_count(); j++) {
+                    f32 weight = w.weight_between(i, j);
+                    std::memcpy(ptr, &weight, sizeof(weight)), ptr += sizeof(weight);
+                }
+            }
+        }
+
+        return buff;
+    }
+
+    static auto deserialize(std::vector<u8> &buff) -> auto {
+        auto *ptr = buff.data();
+
+        std::vector<WeightMatrix> weights;
+
+        size_t len;
+        std::memcpy(&len, ptr, sizeof(len)), ptr += sizeof(len);
+
+        for (auto k = 0; k < len; k++) {
+            i32 matrix_out, matrix_in;
+            std::memcpy(&matrix_out, ptr, sizeof(matrix_out)), ptr += sizeof(matrix_out);
+            std::memcpy(&matrix_in, ptr, sizeof(matrix_in)), ptr += sizeof(matrix_in);
+
+            weights.emplace_back(matrix_out, matrix_in);
+
+            auto &w = weights.back();
+
+            for (auto i = 0; i < w.out_count(); i++) {
+                for (auto j = 0; j < w.in_count(); j++) {
+                    f32 weight;
+                    std::memcpy(&weight, ptr, sizeof(weight)), ptr += sizeof(weight);
+                    w.set_weight(i, j, weight);
+                }
+            }
+        }
+
+        return NeuralNetworkModel(weights);
+    }
+
+private:
+    std::vector<WeightMatrix> weights_;
+};
+
 class NeuralNetwork {
 public:
     explicit NeuralNetwork(const size_t *layers_size_list, size_t layers_count) {
@@ -57,7 +160,12 @@ public:
         }
     }
 
-    explicit NeuralNetwork(const std::vector<size_t>& layers_size) : NeuralNetwork(layers_size.data(), layers_size.size()) {}
+    explicit NeuralNetwork(const std::vector<size_t> &layers_size) : NeuralNetwork(layers_size.data(),
+                                                                                   layers_size.size()) {}
+
+    explicit NeuralNetwork(NeuralNetworkModel &model) : NeuralNetwork(model.layers_sizes_vector()) {
+        weight_matrix_ = model.weights();
+    }
 
 public:
     auto output(i32 i) -> f32 {
@@ -92,12 +200,12 @@ public:
         }
     }
 
-    auto predict(const std::vector<f32>& input) {
+    auto predict(const std::vector<f32> &input) {
         predict_to_output(input.data());
 
         std::vector<f32> out(layers_.back().neurons().size());
         std::transform(layers_.back().neurons().begin(), layers_.back().neurons().end(), out.begin(),
-                       [](const auto& neuron) { return neuron.value; });
+                       [](const auto &neuron) { return neuron.value; });
 
         return out;
     }
@@ -111,8 +219,17 @@ public:
         f32 back_propagation_speed = 0.1f;
     };
 
-    auto train(const TrainingParams& params) -> void {
-        for (i32 epoch = 0; epoch < params.max_epochs; epoch++) {
+    struct TrainingResult {
+        NeuralNetworkModel model;
+        i32 epoch_count;
+        f32 error;
+    };
+
+    auto train(const TrainingParams &params) -> TrainingResult {
+        i32 epoch = 0;
+        f32 err = 0.f;
+
+        for (; epoch < params.max_epochs; epoch++) {
             auto is_error = false;
 
             for (int i = 0; i < params.train_data_count; i++) {
@@ -121,7 +238,7 @@ public:
                 auto expected_output = params.output_data + (i * layers_.back().neurons().size());
                 auto input = params.input_data + (i * layers_.front().neurons().size());
 
-                auto err = compute_error(expected_output);
+                err = compute_error(expected_output);
 
                 if (err > params.min_err) {
                     back_propagate(expected_output, params.back_propagation_speed);
@@ -132,6 +249,12 @@ public:
 
             if (!is_error) break;
         }
+
+        return TrainingResult{
+                .model = NeuralNetworkModel(weight_matrix_),
+                .epoch_count = epoch,
+                .error = err
+        };
     }
 
     auto compute_error(const f32 *expected_output_list) -> f32 {
@@ -211,8 +334,25 @@ auto test() -> void {
     //              0.39922002
 }
 
-auto main() -> int {
-    NeuralNetwork nn({ 2, 16, 1 });
+
+auto save_binary(const char *filename, const std::vector<u8> &binary) {
+    std::ofstream file(filename, std::ios::binary);
+    file.write(reinterpret_cast<const char *>(binary.data()), binary.size());
+}
+
+std::vector<u8> load_binary(const char *filename) {
+    std::ifstream file(filename, std::ios::binary | std::ios::ate);
+
+    std::streamsize size = file.tellg();
+    file.seekg(0, std::ios::beg);
+
+    std::vector<u8> binary(size);
+    file.read(reinterpret_cast<char *>(binary.data()), size);
+    return binary;
+}
+
+auto nn_xor_train_and_save() {
+    NeuralNetwork nn({2, 16, 1});
 
     f32 train_data_in[] = {
             0.f, 0.f,
@@ -225,18 +365,47 @@ auto main() -> int {
             0, 1.f, 1.f, 0.f
     };
 
-    nn.train({
-        .train_data_count = 4,
-        .input_data = train_data_in,
-        .output_data = train_data_out,
-    });
+    auto training_result = nn.train({
+                                  .train_data_count = 4,
+                                  .input_data = train_data_in,
+                                  .output_data = train_data_out,
+                          });
 
-    for (int i = 0; i < 2; i++) {
-        for (int j = 0; j < 2; j++) {
-            std::cout << i << " XOR " << j << " = " << nn.predict({ (f32) i, (f32) j }).at(0) << std::endl;
-        }
+    std::cout << "[INFO] training finished\n";
+    std::cout << std::format("epochs: {}\n", training_result.epoch_count);
+    std::cout << std::format("error: {}\n", training_result.error);
+
+    std::cout << "[INFO] Test\n";
+    for (int i = 0b00; i <= 0b11; i++) {
+        std::vector<f32> in = {(f32) (i >> 1), (f32) (i & 0b1)};
+        std::cout << std::format("{} xor {} = {}\n", in[0], in[1], nn.predict(in).at(0));
     }
 
+    auto out_filename = "../xor_model.bin";
+    save_binary(out_filename, NeuralNetworkModel::serialize(training_result.model));
+
+    std::cout << std::format("[INFO] XOR model saved as \"{}\"\n", out_filename);
+
+    std::cout << "\n";
+}
+
+auto nn_xor_test() {
+    auto model_data = load_binary("../xor_model.bin");
+    auto model = NeuralNetworkModel::deserialize(model_data);
+
+    NeuralNetwork nn(model);
+
+    for (int i = 0b00; i <= 0b11; i++) {
+        std::vector<f32> in = {(f32) (i >> 1), (f32) (i & 0b1)};
+        std::cout << std::format("{} xor {} = {}\n", in[0], in[1], nn.predict(in).at(0));
+    }
+
+    std::cout << "\n";
+}
+
+auto main() -> int {
+    nn_xor_train_and_save();
+//    nn_xor_test();
     return 0;
 }
 
