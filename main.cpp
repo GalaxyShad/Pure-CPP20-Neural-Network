@@ -546,7 +546,7 @@ auto nn_figures_train(i32 frames_foreach_figure_count) {
     std::transform(data_set.labels.begin(), data_set.labels.end(), train_data_out.begin(), floatifizer);
 
     // --- Train neural network --- //
-    NeuralNetwork nn({inputs_count, 16, 16, 16, outputs_count});
+    NeuralNetwork nn({inputs_count, 4, outputs_count});
 
     StdoutTrainingObserver observer;
     auto training_result = nn.train({
@@ -562,7 +562,7 @@ auto nn_figures_train(i32 frames_foreach_figure_count) {
         std::vector<f32> in;
 
         for (int j = 0; j < 49; j++) {
-            in.push_back(train_data_in[figure * 49 * (images_count + 5) + j]);
+            in.push_back(train_data_in[figure * 49 * (frames_foreach_figure_count) + j]);
         }
 
         auto res = nn.predict(in);
