@@ -3,9 +3,9 @@
 #include <vector>
 #include <format>
 #include <algorithm>
+#include <chrono>
 
 #include "shorttypes.h"
-
 #include "utils.h"
 
 auto activate(f32 x) -> f32 {
@@ -231,11 +231,14 @@ public:
         NeuralNetworkModel model;
         i32 epoch_count;
         f32 error;
+        i64 time;
     };
 
     auto train(const TrainingParams &params, ITrainingObserver *observer = nullptr) -> TrainingResult {
         i32 epoch = 0;
         f32 err = 0.f;
+
+        auto time_start = std::chrono::high_resolution_clock::now();
 
         for (; epoch < params.max_epochs; epoch++) {
             auto is_error = false;
@@ -268,10 +271,13 @@ public:
             if (!is_error) break;
         }
 
+        auto time_end = std::chrono::high_resolution_clock::now() - time_start;
+
         return TrainingResult{
                 .model = NeuralNetworkModel(weight_matrix_),
                 .epoch_count = epoch,
-                .error = err
+                .error = err,
+                .time = std::chrono::duration_cast<std::chrono::milliseconds>(time_end).count()
         };
     }
 
@@ -365,6 +371,12 @@ auto test() -> void {
     //              0.39922002
 }
 
+auto print_training_info_to_stdout(const NeuralNetwork::TrainingResult& training_res) {
+    std::cout << "[TRAINING INFO]\n";
+    std::cout << std::format("epochs:\t{:>10}\n", training_res.epoch_count);
+    std::cout << std::format("error:\t{:>10}\n", training_res.error);
+    std::cout << std::format("time millis:\t{:>10}\n", training_res.time);
+}
 
 auto nn_xor_train_and_save() {
     NeuralNetwork nn({2, 16, 1});
@@ -388,9 +400,8 @@ auto nn_xor_train_and_save() {
                                             .output_data = train_data_out,
                                     }, &observer);
 
-    std::cout << "[INFO] training finished\n";
-    std::cout << std::format("epochs: {}\n", training_result.epoch_count);
-    std::cout << std::format("error: {}\n", training_result.error);
+
+    print_training_info_to_stdout(training_result);
 
     std::cout << "[INFO] Test\n";
     for (int i = 0b00; i <= 0b11; i++) {
@@ -429,8 +440,10 @@ struct FiguresDataSet {
     std::vector<u8> labels;
 };
 
-auto generate_images() -> auto {
-    u8 figures[][7] = {
+auto generate_square_circle_triangle_images(int each_figure_frames_count) -> auto {
+    const int image_radius = 7;
+
+    u8 figures[][image_radius] = {
             {
                     0b0'0'00000'0,
                     0b0'0'01110'0,
@@ -462,7 +475,7 @@ auto generate_images() -> auto {
     };
 
     size_t figures_count = 3;
-    size_t images_count = 11;
+    size_t images_count = each_figure_frames_count;
     size_t data_set_count = images_count * figures_count;
 
     std::vector<u8> data_set;
@@ -479,8 +492,8 @@ auto generate_images() -> auto {
             figures[figure][y[2]] ^= (1 << x[2]) & (~(img == 0));
             figures[figure][y[3]] ^= (1 << x[3]) & (~(img == 0));
 
-            for (int i = 0; i < 7; i++) {
-                for (int j = 0; j < 7; j++) {
+            for (int i = 0; i < image_radius; i++) {
+                for (int j = 0; j < image_radius; j++) {
                     data_set.push_back((figures[figure][i] & (0x40 >> j)) != 0);
                 }
             }
@@ -496,9 +509,9 @@ auto generate_images() -> auto {
         }
     }
 
-    for (int k = 0; k < 33; k++) {
-        for (int i = 0; i < 7; i++) {
-            for (int j = 0; j < 7; j++) {
+    for (int k = 0; k < data_set_count; k++) {
+        for (int i = 0; i < image_radius; i++) {
+            for (int j = 0; j < image_radius; j++) {
                 std::cout << ((data_set[k * 49 + i * 7 + j] != 0) ? '#' : '.');
             }
             std::cout << "\n";
@@ -507,33 +520,33 @@ auto generate_images() -> auto {
         std::cout << k << "\n";
     }
 
-    return FiguresDataSet {
-        .images_count = 33,
-        .image_radius = 7,
-        .figures_count = 3,
-        .data = data_set,
-        .labels = data_set_labels,
+    return FiguresDataSet{
+            .images_count = data_set_count,
+            .image_radius = image_radius,
+            .figures_count = figures_count,
+            .data = data_set,
+            .labels = data_set_labels,
     };
 }
 
-auto nn_figures_train() {
-    auto data_set = generate_images();
+auto nn_figures_train(i32 frames_foreach_figure_count) {
+    // --- Transform dataset --- //
+    auto data_set = generate_square_circle_triangle_images(frames_foreach_figure_count);
 
-    std::vector<f32> train_data_in;
-    std::vector<f32> train_data_out;
+    std::vector<f32> train_data_in(data_set.data.size());
+    std::vector<f32> train_data_out(data_set.labels.size());
+
     size_t images_count = data_set.images_count;
     size_t inputs_count = data_set.image_radius * data_set.image_radius;
     size_t outputs_count = data_set.figures_count;
 
-    for (auto i : data_set.data) {
-        train_data_in.push_back((f32)i);
-    }
+    auto floatifizer = [](u8 x) { return (f32) x; };
 
-    for (auto i : data_set.labels) {
-        train_data_out.push_back((f32)i);
-    }
+    std::transform(data_set.data.begin(), data_set.data.end(), train_data_in.begin(), floatifizer);
+    std::transform(data_set.labels.begin(), data_set.labels.end(), train_data_out.begin(), floatifizer);
 
-    NeuralNetwork nn({ inputs_count, 16, 16, outputs_count });
+    // --- Train neural network --- //
+    NeuralNetwork nn({inputs_count, 16, 16, 16, outputs_count});
 
     StdoutTrainingObserver observer;
     auto training_result = nn.train({
@@ -542,16 +555,14 @@ auto nn_figures_train() {
                                             .output_data = train_data_out.data(),
                                     }, &observer);
 
-    std::cout << "[INFO] training finished\n";
-    std::cout << std::format("epochs: {}\n", training_result.epoch_count);
-    std::cout << std::format("error: {}\n", training_result.error);
+    print_training_info_to_stdout(training_result);
 
     std::cout << "[INFO] Test\n";
     for (int figure = 0; figure < 3; figure++) {
         std::vector<f32> in;
 
         for (int j = 0; j < 49; j++) {
-            in.push_back(train_data_in[figure * 49 * (11 + 5) + j]);
+            in.push_back(train_data_in[figure * 49 * (images_count + 5) + j]);
         }
 
         auto res = nn.predict(in);
@@ -560,19 +571,68 @@ auto nn_figures_train() {
                                  "o#^"[figure], res.at(0), res.at(1), res.at(2));
     }
 
-    auto out_filename = "../figures_model.bin";
-    save_binary(out_filename, NeuralNetworkModel::serialize(training_result.model));
+    auto out_filename = std::format("../figures_model_o#^_x{}_each.bin", frames_foreach_figure_count);
+    save_binary(out_filename.c_str(), NeuralNetworkModel::serialize(training_result.model));
 
     std::cout << std::format("[INFO] Model saved as \"{}\"\n", out_filename);
 
     std::cout << "\n";
 }
 
-auto main() -> int {
-    nn_figures_train();
+auto nn_figures_test(i32 frames_foreach_figure_count) {
+    auto out_filename = std::format("../figures_model_o#^_x{}_each.bin", frames_foreach_figure_count);
 
+    auto model_data = load_binary(out_filename.c_str());
+    auto model = NeuralNetworkModel::deserialize(model_data);
+
+    NeuralNetwork nn(model);
+
+    auto predict_and_print = [](NeuralNetwork &n, const char *lbl, std::vector<f32> d) {
+        auto res = n.predict(d);
+        std::cout << std::format("expected -> {} | predicted -> (o: {:.3f}, #: {:>.3f} ^: {:>.3f}) \n",
+                                 lbl, res.at(0), res.at(1), res.at(2));
+    };
+
+#define X 1
+    predict_and_print(nn, "#", {
+            0, 0, 0, 0, 0, 0, 0,
+            0, X, X, X, X, X, 0,
+            0, X, 0, 0, 0, X, 0,
+            0, X, 0, 0, 0, X, 0,
+            0, X, 0, 0, 0, X, 0,
+            0, X, X, X, X, X, 0,
+            0, 0, 0, 0, 0, 0, 0,
+    });
+
+    predict_and_print(nn, "o", {
+            0, 0, 0, 0, 0, 0, 0,
+            0, 0, X, X, X, 0, 0,
+            0, X, 0, 0, 0, X, 0,
+            0, X, 0, X, 0, X, 0,
+            0, X, 0, 0, 0, X, 0,
+            0, 0, X, X, X, 0, 0,
+            0, 0, 0, 0, 0, 0, 0,
+    });
+
+    predict_and_print(nn, "^", {
+            0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, X, 0, 0, 0,
+            0, 0, X, 0, X, 0, 0,
+            0, X, 0, 0, 0, X, 0,
+            X, 0, 0, 0, 0, 0, X,
+            X, X, X, X, X, X, X,
+            0, 0, 0, 0, 0, 0, 0,
+    });
+#undef X
+}
+
+auto main() -> int {
+    nn_figures_train(5);
+    nn_figures_test(5);
+//
 //    nn_xor_train_and_save();
 //    nn_xor_test();
+
     return 0;
 }
 
