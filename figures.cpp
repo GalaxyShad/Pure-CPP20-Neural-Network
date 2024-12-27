@@ -3,6 +3,9 @@
 #include <iostream>
 #include <format>
 #include <chrono>
+#include <ranges>
+#include <string>
+#include <string_view>
 
 #include "src/utils.h"
 
@@ -132,7 +135,7 @@ auto nn_figures_train(i32 frames_foreach_figure_count) {
     std::transform(data_set.labels.begin(), data_set.labels.end(), train_data_out.begin(), floatifizer);
 
     // --- Train neural network --- //
-    NeuralNetwork nn({inputs_count, 4, 8, 4, outputs_count});
+    NeuralNetwork nn({inputs_count, outputs_count});
 
     StdoutTrainingObserver observer;
     auto training_result = nn.train({
@@ -157,7 +160,12 @@ auto nn_figures_train(i32 frames_foreach_figure_count) {
                                  "o#^"[figure], res.at(0), res.at(1), res.at(2));
     }
 
-    auto out_filename = std::format("../figures_model_o#^_x{}_each.bin", frames_foreach_figure_count);
+    std::string model_layers_string = "-";
+    for (auto& i : training_result.model.layers_sizes_vector()) {
+        model_layers_string += std::format("{}-", i);
+    }
+
+    auto out_filename = std::format("figures-model_o#^_{}_x{}each.bin", model_layers_string, frames_foreach_figure_count);
     save_binary(out_filename.c_str(), NeuralNetworkModel::serialize(training_result.model));
 
     std::cout << std::format("[INFO] Model saved as \"{}\"\n", out_filename);
@@ -220,7 +228,7 @@ auto nn_figures_test(i32 frames_foreach_figure_count) {
 
 auto main() -> int {
     nn_figures_train(5);
-    nn_figures_test(5);
+    // nn_figures_test(5);
 
     return 0;
 }
