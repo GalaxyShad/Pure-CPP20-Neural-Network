@@ -135,7 +135,7 @@ auto nn_figures_train(i32 frames_foreach_figure_count) {
     std::transform(data_set.labels.begin(), data_set.labels.end(), train_data_out.begin(), floatifizer);
 
     // --- Train neural network --- //
-    NeuralNetwork nn({inputs_count, 14, outputs_count});
+    NeuralNetwork nn({inputs_count, 5, 5, outputs_count});
 
     StdoutTrainingObserver observer;
     auto training_result = nn.train({
